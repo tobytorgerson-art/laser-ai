@@ -1,0 +1,25 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# user data (large, private)
+data/pairs/
+data/features/
+models/
+*.ilda
+*.ild
+*.mp3
+*.wav
+!tests/fixtures/**
+
+# os / ide
+.DS_Store
+.vscode/
+.idea/
