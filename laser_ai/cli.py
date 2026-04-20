@@ -174,5 +174,16 @@ def train_sequencer_cmd(data_dir: Path, checkpoint: Path, output: Path,
     click.echo(f"saved checkpoint: {output}")
 
 
+@cli.command("prepare-bundle")
+@click.argument("data_dir", type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.option("-o", "--output", type=click.Path(dir_okay=False, path_type=Path),
+              required=True, help="Output bundle zip path.")
+def prepare_bundle_cmd(data_dir: Path, output: Path) -> None:
+    """Zip a training folder into a bundle suitable for Colab."""
+    from laser_ai.bundle.pack import pack_dataset
+    pack_dataset(data_dir, output)
+    click.echo(f"wrote {output}")
+
+
 if __name__ == "__main__":
     cli()
