@@ -25,3 +25,18 @@ def test_load_missing_file_raises(tmp_path: Path):
     import pytest
     with pytest.raises(FileNotFoundError):
         load_audio(tmp_path / "nope.wav")
+
+
+def test_load_resamples_non_44k_audio(tmp_path: Path):
+    import soundfile as sf
+    src_sr = 22050
+    duration_s = 0.5
+    t = np.linspace(0, duration_s, int(src_sr * duration_s), endpoint=False)
+    samples = (0.5 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+    path = tmp_path / "half_rate.wav"
+    sf.write(path, samples, src_sr, subtype="PCM_16")
+
+    out, sr = load_audio(path)
+    assert sr == 44100
+    # Resampled length should be ~2x original
+    assert abs(len(out) - int(duration_s * 44100)) < 100
