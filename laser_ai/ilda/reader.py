@@ -35,20 +35,9 @@ def _parse(data: bytes, name: str = "") -> Show:
         frame_name = data[offset + 8:offset + 16].rstrip(b" \x00").decode("ascii", errors="replace")
         company = data[offset + 16:offset + 24].rstrip(b" \x00").decode("ascii", errors="replace")
         records, frame_no, total, _projector, _future = struct.unpack(
-            ">HHHHH", data[offset + 24:offset + 34]
+            ">HHHBB", data[offset + 24:offset + 32]
         )
-        offset += _HEADER_SIZE + 2  # header is 32 bytes + 2 reserved = 34; spec has 32-byte header but many files pad to 34. Guard:
-        # Actually the spec header is exactly 32 bytes. The 5 unsigned-shorts are 10 bytes, starting at offset 24,
-        # which means offset+24..offset+34 is correct, but the header itself is 34 bytes. Some implementations treat
-        # it as 32 — re-read below with 32-byte assumption.
-        offset -= 2
-        offset += 32  # keep header size 32
-        # Rewind to the end of the parsed header fields (offset + 34 from header start).
-        # Our fixture and the writer both emit 5 big-endian u16s at bytes 24..34, so the
-        # correct record stream begins at (header_start + 34). The three lines above were
-        # written to make the intent explicit but leave the advance at +64 from the header
-        # start, which is wrong. Pull offset back by the 30 extra bytes to land at +34.
-        offset -= 30
+        offset += _HEADER_SIZE
 
         if records == 0:
             # End-of-file marker

@@ -29,7 +29,7 @@ def write_ilda(show: Show, path: str | Path) -> None:
         buf += struct.pack(">I", _FORMAT)
         buf += name
         buf += company
-        buf += struct.pack(">HHHHH", records, idx, total, 0, 0)
+        buf += struct.pack(">HHHBB", records, idx, total, 0, 0)
 
         for i, p in enumerate(frame.points):
             status = 0
@@ -49,6 +49,6 @@ def write_ilda(show: Show, path: str | Path) -> None:
     buf += struct.pack(">I", _FORMAT)
     buf += b" " * 8
     buf += company
-    buf += struct.pack(">HHHHH", 0, total, total, 0, 0)
+    buf += struct.pack(">HHHBB", 0, total, total, 0, 0)
 
     path.write_bytes(bytes(buf))

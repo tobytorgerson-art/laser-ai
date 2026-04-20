@@ -31,9 +31,9 @@ def test_write_ends_with_zero_record_section(tmp_path: Path):
     write_ilda(show, out)
     data = out.read_bytes()
     # Last header should be an ILDA section with records=0. The writer
-    # emits magic(4) + fmt(4) + name(8) + company(8) + 5*u16(10) = 34 bytes,
-    # matching the fixture format, so look at the trailing 34 bytes.
-    tail = data[-34:]
+    # emits a 32-byte ILDA-spec header: magic(4) + fmt(4) + name(8) + company(8)
+    # + records/u16 + frame#/u16 + total#/u16 + projector/u8 + future/u8 = 32.
+    tail = data[-32:]
     assert tail[:4] == b"ILDA"
     records = struct.unpack(">H", tail[24:26])[0]
     assert records == 0

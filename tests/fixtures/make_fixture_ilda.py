@@ -34,14 +34,14 @@ def write_tiny_ilda(path: Path) -> None:
         header = b"ILDA" + struct.pack(">I", 4)  # magic + format
         header += b"FRAME   ".ljust(8, b" ")[:8]    # name (8 bytes)
         header += b"LASERAI ".ljust(8, b" ")[:8]   # company (8 bytes)
-        header += struct.pack(">HHHHH",
+        header += struct.pack(">HHHBB",
                               len(pts),            # records
                               idx,                 # frame no
                               total_frames,        # total
                               0,                   # projector
                               0)                   # future
         frames.append(header)
-        # records: 8 bytes per point for format 4
+        # records: 10 bytes per point for format 4 (x, y, z int16 + status + B, G, R)
         for (x, y, z, is_last, r, g, b) in pts:
             status = 0
             if is_last:
@@ -51,7 +51,7 @@ def write_tiny_ilda(path: Path) -> None:
     # End-of-file section (0 records)
     eof_header = b"ILDA" + struct.pack(">I", 4)
     eof_header += b"        " + b"        "
-    eof_header += struct.pack(">HHHHH", 0, total_frames, total_frames, 0, 0)
+    eof_header += struct.pack(">HHHBB", 0, total_frames, total_frames, 0, 0)
     frames.append(eof_header)
 
     path.parent.mkdir(parents=True, exist_ok=True)
