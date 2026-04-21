@@ -19,12 +19,17 @@ def load_audio(path: str | Path) -> tuple[np.ndarray, int]:
     if not path.exists():
         raise FileNotFoundError(f"audio file not found: {path}")
 
-    samples, sr = sf.read(str(path), dtype="float32", always_2d=True)
-    # Mix to mono
-    samples = samples.mean(axis=1)
+    try:
+        samples, sr = sf.read(str(path), dtype="float32", always_2d=True)
+        samples = samples.mean(axis=1)  # mix to mono
+    except Exception:
+        # libsndfile can choke on MP3s with malformed headers. Fall back to
+        # librosa.load, which uses audioread / ffmpeg under the hood and is
+        # more forgiving. Loads mono and resampled to TARGET_SR in one shot.
+        import librosa
+        samples, sr = librosa.load(str(path), sr=TARGET_SR, mono=True)
 
     if sr != TARGET_SR:
-        # lazy import; librosa is heavy
         import librosa
         samples = librosa.resample(samples, orig_sr=sr, target_sr=TARGET_SR)
         sr = TARGET_SR
