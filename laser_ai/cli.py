@@ -119,8 +119,8 @@ def train_vae_cmd(data_dir: Path, output: Path, epochs: int, batch_size: int,
     vae, _ = train_vae(ds, vae_cfg=vae_cfg, train_cfg=train_cfg, progress_callback=_log)
 
     # Default untrained sequencer placeholder; user will train it via train-sequencer
-    # Use max_len=8192 (~5 min at 30 fps) so real songs fit without truncation.
-    seq_cfg = SequencerConfig(feature_dim=FEATURE_DIM, latent_dim=latent_dim, max_len=8192)
+    # Use max_len=16384 (~9 min at 30 fps) so longer songs fit without truncation.
+    seq_cfg = SequencerConfig(feature_dim=FEATURE_DIM, latent_dim=latent_dim, max_len=16384)
     ck = LaserAICheckpoint(
         vae=vae, vae_cfg=vae_cfg,
         sequencer=AudioToLatentSequencer(seq_cfg), seq_cfg=seq_cfg,
