@@ -20,7 +20,7 @@ def cli() -> None:
 @cli.command()
 @click.argument("audio", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("-o", "--output", type=click.Path(dir_okay=False, path_type=Path),
-              required=True, help="Output .ilda path.")
+              required=True, help="Output .ild path.")
 @click.option("--fps", type=float, default=30.0, show_default=True,
               help="Target frame rate.")
 @click.option("--n-points", type=int, default=512, show_default=True,

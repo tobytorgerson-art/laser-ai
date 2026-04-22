@@ -10,14 +10,22 @@ dist/
 build/
 
 # user data (large, private)
-data/pairs/
-data/features/
+data/
 /models/
 *.ilda
 *.ild
 *.mp3
 *.wav
 !tests/fixtures/**
+
+# trained checkpoints + bundles (large)
+*.pt
+bundle.zip
+
+# tool artifacts
+.coverage
+.claude/
+.omc/
 
 # os / ide
 .DS_Store
