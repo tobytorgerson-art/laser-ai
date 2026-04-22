@@ -94,7 +94,8 @@ def train_vae_cmd(data_dir: Path, output: Path, epochs: int, batch_size: int,
     from laser_ai.training.train_vae import VAETrainConfig, train_vae
 
     ilda_paths = sorted(
-        list(data_dir.rglob("*.ild")) + list(data_dir.rglob("*.ilda"))
+        p for p in data_dir.rglob("*")
+        if p.is_file() and p.suffix.lower() in {".ild", ".ilda"}
     )
     if not ilda_paths:
         raise click.ClickException(f"no .ild/.ilda files found in {data_dir}")

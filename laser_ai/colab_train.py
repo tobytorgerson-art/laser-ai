@@ -52,7 +52,10 @@ def run(
     print(f"[colab] unpacked {len(index['pairs'])} pair(s) to {work}")
 
     # 1. Train VAE
-    ilda_paths = sorted(list(pairs_dir.glob("*.ild")) + list(pairs_dir.glob("*.ilda")))
+    ilda_paths = sorted(
+        p for p in pairs_dir.iterdir()
+        if p.is_file() and p.suffix.lower() in {".ild", ".ilda"}
+    )
     print(f"[colab] training VAE on {len(ilda_paths)} ILDA file(s)")
     ds = FrameDataset(
         ilda_paths, n_points=n_points,
