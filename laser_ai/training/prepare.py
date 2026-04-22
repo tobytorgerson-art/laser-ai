@@ -44,6 +44,7 @@ def build_sequencer_dataset(
     Sequences are time-aligned by nearest-neighbor stretching if lengths differ.
     """
     vae.eval()
+    device = next(vae.parameters()).device
     out: list[tuple[torch.Tensor, torch.Tensor]] = []
     for pair in pairs:
         # Audio features
@@ -54,12 +55,14 @@ def build_sequencer_dataset(
         # ILDA latents
         show = read_ilda(pair.ilda_path)
         frames_np = show_to_tensor(show, n_points=n_points)  # (T_ilda, N, 6)
-        frames = torch.from_numpy(frames_np).float()
+        frames = torch.from_numpy(frames_np).float().to(device)
         if frames.shape[0] == 0:
             continue
-        mu, _ = vae.encode(frames)   # (T_ilda, latent_dim)
+        mu, _ = vae.encode(frames)   # (T_ilda, latent_dim), on device
+        # Move latents back to CPU for storage / downstream training collation
+        mu = mu.detach().cpu()
 
         # Align the two time axes
-        latents = _stretch_latents_to_length(mu.detach(), target_T=feats.shape[0])
+        latents = _stretch_latents_to_length(mu, target_T=feats.shape[0])
         out.append((feats, latents))
     return out
