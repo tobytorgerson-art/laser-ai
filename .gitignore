@@ -20,7 +20,7 @@ data/
 
 # trained checkpoints + bundles (large)
 *.pt
-bundle.zip
+bundle*.zip
 
 # tool artifacts
 .coverage
