@@ -35,7 +35,11 @@ class TrainedGenerator(Generator):
 
         feats_t = torch.from_numpy(features).float().unsqueeze(0).to(self.device)  # (1, T, F)
         latents = self.ck.sequencer(feats_t)   # (1, T, latent_dim)
+        # If the sequencer was trained on standardized latents, un-standardize.
+        if self.ck.latent_mean is not None and self.ck.latent_std is not None:
+            mean = self.ck.latent_mean.to(self.device)
+            std = self.ck.latent_std.to(self.device)
+            latents = latents * std + mean
         # Decode each frame's latent
-        T = latents.shape[1]
         frames = self.ck.vae.decode(latents[0])  # (T, n_points, 6)
         return frames.cpu().numpy().astype(np.float32)

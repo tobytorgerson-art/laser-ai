@@ -88,7 +88,15 @@ def train_sequencer(
     seq_cfg: SequencerConfig | None = None,
     train_cfg: SequencerTrainConfig | None = None,
     progress_callback=None,
-) -> tuple[AudioToLatentSequencer, list[dict]]:
+) -> tuple[AudioToLatentSequencer, list[dict], torch.Tensor, torch.Tensor]:
+    """Train sequencer on per-dim z-scored latents.
+
+    Returns ``(model, history, latent_mean, latent_std)``. The model predicts in
+    standardized space; inference must apply ``pred * latent_std + latent_mean``
+    before decoding. Standardizing per-dim balances gradient across latent
+    dimensions and prevents the dominant-variance dims from making
+    mean-regression an MSE-optimal solution.
+    """
     if len(pairs) == 0:
         raise ValueError("pairs list is empty")
     seq_cfg = seq_cfg or SequencerConfig()
@@ -103,9 +111,12 @@ def train_sequencer(
     window = min(train_cfg.window, seq_cfg.max_len)
     max_pos_offset = max(0, seq_cfg.max_len - window)
 
-    # Compute target latent stats so we can report "is the model still mean-regressing?"
+    # Per-dim normalization stats across all training latents.
     all_lats = torch.cat([l for _, l in pairs], dim=0)
-    target_std = float(all_lats.std(dim=0).mean().item())
+    latent_mean = all_lats.mean(dim=0)                 # (D,)
+    latent_std = all_lats.std(dim=0).clamp_min(1e-6)   # (D,) avoid /0
+    mean_dev = latent_mean.to(device)
+    std_dev = latent_std.to(device)
 
     n_steps_per_epoch = max(1, train_cfg.samples_per_epoch // train_cfg.batch_size)
 
@@ -121,8 +132,9 @@ def train_sequencer(
                 rng=rng,
             )
             feats = feats.to(device); lats = lats.to(device)
+            lats_norm = (lats - mean_dev) / std_dev
             pred = model(feats, pos_offset=pos_offset)
-            loss = F.mse_loss(pred, lats)
+            loss = F.mse_loss(pred, lats_norm)
 
             opt.zero_grad(set_to_none=True)
             loss.backward()
@@ -135,10 +147,10 @@ def train_sequencer(
             "epoch": epoch,
             "mse": total / n_steps_per_epoch,
             "pred_std": pred_var_sum / n_steps_per_epoch,
-            "target_std": target_std,
+            "target_std": 1.0,  # targets are unit-std per dim by construction
         }
         history.append(entry)
         if progress_callback is not None:
             progress_callback(epoch, entry)
 
-    return model, history
+    return model, history, latent_mean.cpu(), latent_std.cpu()

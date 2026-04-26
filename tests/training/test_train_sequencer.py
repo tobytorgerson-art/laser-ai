@@ -24,9 +24,14 @@ def test_train_sequencer_runs():
         feature_dim=16, latent_dim=8, hidden=32, n_layers=2, n_heads=2,
     )
     train_cfg = SequencerTrainConfig(epochs=1, batch_size=1)
-    model, history = train_sequencer(pairs, seq_cfg=seq_cfg, train_cfg=train_cfg)
+    model, history, latent_mean, latent_std = train_sequencer(
+        pairs, seq_cfg=seq_cfg, train_cfg=train_cfg,
+    )
     assert model is not None
     assert len(history) == 1
+    assert latent_mean.shape == (8,)
+    assert latent_std.shape == (8,)
+    assert torch.all(latent_std > 0)
 
 
 def test_train_sequencer_loss_decreases():
@@ -35,5 +40,5 @@ def test_train_sequencer_loss_decreases():
         feature_dim=16, latent_dim=8, hidden=32, n_layers=2, n_heads=2,
     )
     train_cfg = SequencerTrainConfig(epochs=5, batch_size=2, lr=3e-3)
-    _, history = train_sequencer(pairs, seq_cfg=seq_cfg, train_cfg=train_cfg)
+    _, history, _, _ = train_sequencer(pairs, seq_cfg=seq_cfg, train_cfg=train_cfg)
     assert history[-1]["mse"] < history[0]["mse"]

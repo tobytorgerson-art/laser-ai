@@ -163,13 +163,15 @@ def train_sequencer_cmd(data_dir: Path, checkpoint: Path, output: Path,
     def _log(epoch: int, entry: dict) -> None:
         click.echo(f"  epoch {epoch:3d}: mse={entry['mse']:.6f}")
 
-    sequencer, _ = train_sequencer(pairs, seq_cfg=ck.seq_cfg, train_cfg=train_cfg,
-                                   progress_callback=_log)
+    sequencer, _, latent_mean, latent_std = train_sequencer(
+        pairs, seq_cfg=ck.seq_cfg, train_cfg=train_cfg, progress_callback=_log,
+    )
 
     updated = LaserAICheckpoint(
         vae=ck.vae, vae_cfg=ck.vae_cfg,
         sequencer=sequencer, seq_cfg=ck.seq_cfg,
         audio_feature_dim=ck.audio_feature_dim, fps=ck.fps,
+        latent_mean=latent_mean, latent_std=latent_std,
     )
     save_checkpoint(updated, output)
     click.echo(f"saved checkpoint: {output}")

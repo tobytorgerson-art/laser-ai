@@ -128,7 +128,7 @@ def run(
                     f"target={entry['target_std']:.4f}")
         print(msg)
 
-    sequencer, _ = train_sequencer(
+    sequencer, _, latent_mean, latent_std = train_sequencer(
         seq_pairs, seq_cfg=seq_cfg, train_cfg=seq_train_cfg,
         progress_callback=_log_seq,
     )
@@ -138,6 +138,7 @@ def run(
         vae=vae, vae_cfg=vae_cfg,
         sequencer=sequencer, seq_cfg=seq_cfg,
         audio_feature_dim=FEATURE_DIM, fps=30.0,
+        latent_mean=latent_mean, latent_std=latent_std,
     )
     save_checkpoint(ck, out_checkpoint)
     print(f"[colab] saved {out_checkpoint}")

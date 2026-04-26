@@ -11,7 +11,8 @@ from laser_ai.models.sequencer import AudioToLatentSequencer, SequencerConfig
 from laser_ai.models.vae import FrameVAE, FrameVAEConfig
 
 
-_FORMAT_VERSION = 1
+_FORMAT_VERSION = 2
+_SUPPORTED_VERSIONS = {1, 2}
 
 
 @dataclass(slots=True)
@@ -22,6 +23,12 @@ class LaserAICheckpoint:
     seq_cfg: SequencerConfig
     audio_feature_dim: int
     fps: float
+    # Per-dim normalization stats applied to VAE latents during sequencer training.
+    # When present, the sequencer outputs in normalized space and inference must
+    # un-standardize (latent = pred * std + mean) before decoding. v1 checkpoints
+    # carry None and the inference path treats them as identity.
+    latent_mean: torch.Tensor | None = None
+    latent_std: torch.Tensor | None = None
 
 
 def save_checkpoint(ck: LaserAICheckpoint, path: str | Path) -> None:
@@ -35,18 +42,19 @@ def save_checkpoint(ck: LaserAICheckpoint, path: str | Path) -> None:
         "seq_state": ck.sequencer.state_dict(),
         "audio_feature_dim": ck.audio_feature_dim,
         "fps": ck.fps,
+        "latent_mean": ck.latent_mean,
+        "latent_std": ck.latent_std,
     }
     torch.save(payload, path)
 
 
 def load_checkpoint(path: str | Path, map_location: str = "cpu") -> LaserAICheckpoint:
     payload = torch.load(str(path), map_location=map_location, weights_only=False)
-    if payload.get("format_version") != _FORMAT_VERSION:
+    version = payload.get("format_version")
+    if version not in _SUPPORTED_VERSIONS:
         raise ValueError(
-            f"checkpoint format version {payload.get('format_version')} "
-            f"!= expected {_FORMAT_VERSION}"
+            f"checkpoint format version {version} not in supported {_SUPPORTED_VERSIONS}"
         )
-    # Coerce scale_range list back to tuple if needed
     vcfg_dict = payload["vae_cfg"]
     scfg_dict = payload["seq_cfg"]
     vae_cfg = FrameVAEConfig(**vcfg_dict)
@@ -62,4 +70,6 @@ def load_checkpoint(path: str | Path, map_location: str = "cpu") -> LaserAICheck
         sequencer=sequencer, seq_cfg=seq_cfg,
         audio_feature_dim=int(payload["audio_feature_dim"]),
         fps=float(payload["fps"]),
+        latent_mean=payload.get("latent_mean"),
+        latent_std=payload.get("latent_std"),
     )

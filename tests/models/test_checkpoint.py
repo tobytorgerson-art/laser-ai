@@ -37,6 +37,26 @@ def test_save_and_load_roundtrip(tmp_path: Path):
     assert ck2.fps == 30.0
 
 
+def test_latent_normalization_stats_roundtrip(tmp_path: Path):
+    ck = _build_tiny_bundle()
+    ck.latent_mean = torch.arange(4, dtype=torch.float32) * 0.1
+    ck.latent_std = torch.arange(4, dtype=torch.float32) * 0.1 + 1.0
+    path = tmp_path / "b.pt"
+    save_checkpoint(ck, path)
+    ck2 = load_checkpoint(path, map_location="cpu")
+    torch.testing.assert_close(ck2.latent_mean, ck.latent_mean)
+    torch.testing.assert_close(ck2.latent_std, ck.latent_std)
+
+
+def test_missing_latent_stats_load_as_none(tmp_path: Path):
+    ck = _build_tiny_bundle()  # no mean/std set
+    path = tmp_path / "b.pt"
+    save_checkpoint(ck, path)
+    ck2 = load_checkpoint(path, map_location="cpu")
+    assert ck2.latent_mean is None
+    assert ck2.latent_std is None
+
+
 def test_loaded_vae_produces_same_output(tmp_path: Path):
     ck = _build_tiny_bundle()
     x = torch.randn(1, ck.vae_cfg.n_points, 6)
