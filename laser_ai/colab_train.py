@@ -25,6 +25,10 @@ def run(
     seq_epochs: int = 40,
     seq_batch_size: int = 4,
     seq_lr: float = 5e-4,
+    e2e_epochs: int = 0,
+    e2e_batch_size: int = 2,
+    e2e_window: int = 256,
+    e2e_lr: float = 1e-4,
     device: str = "auto",
     resume_from_vae: str | None = None,
     vae_only_path: str = "vae_only.pt",
@@ -44,8 +48,13 @@ def run(
     )
     from laser_ai.models.sequencer import AudioToLatentSequencer, SequencerConfig
     from laser_ai.models.vae import FrameVAEConfig
-    from laser_ai.training.prepare import build_sequencer_dataset
-    from laser_ai.training.train_sequencer import SequencerTrainConfig, train_sequencer
+    from laser_ai.training.prepare import (
+        build_sequencer_dataset, build_sequencer_dataset_e2e,
+    )
+    from laser_ai.training.train_sequencer import (
+        SequencerE2ETrainConfig, SequencerTrainConfig,
+        train_sequencer, train_sequencer_e2e,
+    )
     from laser_ai.training.train_vae import VAETrainConfig, train_vae
 
     # Unpack bundle into /content/data (or local equivalent)
@@ -132,6 +141,30 @@ def run(
         seq_pairs, seq_cfg=seq_cfg, train_cfg=seq_train_cfg,
         progress_callback=_log_seq,
     )
+
+    # 3b. Optional end-to-end fine-tuning (chamfer/rgb on decoded frames).
+    # Forces the sequencer to land on the VAE manifold instead of just matching
+    # per-dim statistics. Skipped if e2e_epochs == 0.
+    if e2e_epochs > 0:
+        print(f"[colab] building e2e dataset (audio_features, frames)")
+        e2e_pairs = build_sequencer_dataset_e2e(
+            result.pairs, n_points=n_points, fps=30.0,
+        )
+        print(f"[colab] running end-to-end fine-tuning ({e2e_epochs} epochs)")
+        e2e_cfg = SequencerE2ETrainConfig(
+            epochs=e2e_epochs, batch_size=e2e_batch_size,
+            lr=e2e_lr, window=e2e_window, device=device,
+        )
+
+        def _log_e2e(epoch, entry):
+            print(f"  [e2e] epoch {epoch}: chamfer={entry['chamfer']:.4f}  "
+                  f"rgb={entry['rgb']:.4f}  travel={entry['travel']:.4f}")
+
+        sequencer, _ = train_sequencer_e2e(
+            e2e_pairs, sequencer=sequencer, vae=vae,
+            latent_mean=latent_mean, latent_std=latent_std,
+            train_cfg=e2e_cfg, progress_callback=_log_e2e,
+        )
 
     # 4. Save bundle
     ck = LaserAICheckpoint(

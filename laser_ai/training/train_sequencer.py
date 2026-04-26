@@ -16,7 +16,9 @@ from dataclasses import dataclass
 import torch
 import torch.nn.functional as F
 
+from laser_ai.models.losses import chamfer_distance
 from laser_ai.models.sequencer import AudioToLatentSequencer, SequencerConfig
+from laser_ai.models.vae import FrameVAE
 
 
 @dataclass(slots=True)
@@ -154,3 +156,140 @@ def train_sequencer(
             progress_callback(epoch, entry)
 
     return model, history, latent_mean.cpu(), latent_std.cpu()
+
+
+@dataclass(slots=True)
+class SequencerE2ETrainConfig:
+    """Config for the end-to-end fine-tuning pass."""
+    epochs: int = 50
+    batch_size: int = 2
+    lr: float = 1e-4
+    weight_decay: float = 1e-5
+    device: str = "auto"
+    window: int = 256                # smaller than MSE window — decoding is expensive
+    samples_per_epoch: int = 64
+    chamfer_weight: float = 1.0
+    rgb_weight: float = 0.3
+    travel_weight: float = 0.1
+
+
+def _draw_batch_frames(
+    pairs: list[tuple[torch.Tensor, torch.Tensor]],
+    window: int,
+    batch_size: int,
+    max_pos_offset: int,
+    rng: random.Random,
+) -> tuple[torch.Tensor, torch.Tensor, int]:
+    """Like _draw_batch but for (features, frames) pairs where frames is (T, N, 6)."""
+    pos_offset = rng.randrange(max_pos_offset + 1) if max_pos_offset > 0 else 0
+    feat_chunks: list[torch.Tensor] = []
+    frame_chunks: list[torch.Tensor] = []
+    for _ in range(batch_size):
+        idx = rng.randrange(len(pairs))
+        feats, frames = pairs[idx]
+        T = feats.shape[0]
+        if T <= window:
+            f, fr = feats, frames
+            if f.shape[0] < window:
+                pad_T = window - f.shape[0]
+                f = F.pad(f, (0, 0, 0, pad_T))                    # (T,F)
+                fr = F.pad(fr, (0, 0, 0, 0, 0, pad_T))            # (T,N,6)
+        else:
+            start = rng.randrange(T - window + 1)
+            f = feats[start:start + window]
+            fr = frames[start:start + window]
+        feat_chunks.append(f)
+        frame_chunks.append(fr)
+    return torch.stack(feat_chunks), torch.stack(frame_chunks), pos_offset
+
+
+def train_sequencer_e2e(
+    pairs_features_frames: list[tuple[torch.Tensor, torch.Tensor]],
+    sequencer: AudioToLatentSequencer,
+    vae: FrameVAE,
+    latent_mean: torch.Tensor,
+    latent_std: torch.Tensor,
+    train_cfg: SequencerE2ETrainConfig | None = None,
+    progress_callback=None,
+) -> tuple[AudioToLatentSequencer, list[dict]]:
+    """End-to-end fine-tune: backprop chamfer/rgb/travel through VAE.decode.
+
+    The MSE-pre-trained sequencer reaches the right latent statistics but its
+    outputs may sit off the VAE's manifold (decode produces noise). This pass
+    freezes the VAE and trains the sequencer with a reconstruction loss on
+    decoded frames, forcing latents to land where the decoder can use them.
+    """
+    if len(pairs_features_frames) == 0:
+        raise ValueError("pairs list is empty")
+    train_cfg = train_cfg or SequencerE2ETrainConfig()
+    device = _resolve_device(train_cfg.device)
+
+    sequencer = sequencer.to(device)
+    vae = vae.to(device).eval()
+    for p in vae.parameters():
+        p.requires_grad_(False)
+
+    mean_dev = latent_mean.to(device)
+    std_dev = latent_std.to(device)
+
+    opt = torch.optim.AdamW(sequencer.parameters(), lr=train_cfg.lr,
+                            weight_decay=train_cfg.weight_decay)
+    history: list[dict] = []
+    rng = random.Random(0)
+    window = min(train_cfg.window, sequencer.cfg.max_len)
+    max_pos_offset = max(0, sequencer.cfg.max_len - window)
+    n_steps_per_epoch = max(1, train_cfg.samples_per_epoch // train_cfg.batch_size)
+    n_points = vae.cfg.n_points
+
+    for epoch in range(train_cfg.epochs):
+        sequencer.train()
+        ch_total = 0.0
+        rgb_total = 0.0
+        tr_total = 0.0
+        for _ in range(n_steps_per_epoch):
+            feats, frames, pos_offset = _draw_batch_frames(
+                pairs_features_frames, window=window,
+                batch_size=train_cfg.batch_size,
+                max_pos_offset=max_pos_offset, rng=rng,
+            )
+            feats = feats.to(device); frames = frames.to(device)
+            B, T_w, _ = feats.shape
+
+            pred_norm = sequencer(feats, pos_offset=pos_offset)        # (B, T, D)
+            pred_lats = pred_norm * std_dev + mean_dev                  # un-standardize
+
+            decoded = vae.decode(pred_lats.reshape(B * T_w, -1))        # (B*T, N, 6)
+            decoded = decoded.reshape(B, T_w, n_points, 6)
+
+            decoded_xy = decoded[..., :2].reshape(B * T_w, n_points, 2)
+            target_xy = frames[..., :2].reshape(B * T_w, n_points, 2)
+            ch = chamfer_distance(decoded_xy, target_xy)
+            rgb = F.mse_loss(decoded[..., 2:5], frames[..., 2:5])
+            tr = F.binary_cross_entropy(
+                decoded[..., 5].clamp(1e-6, 1 - 1e-6),
+                frames[..., 5],
+            )
+            loss = (train_cfg.chamfer_weight * ch
+                    + train_cfg.rgb_weight * rgb
+                    + train_cfg.travel_weight * tr)
+
+            opt.zero_grad(set_to_none=True)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(sequencer.parameters(), 1.0)
+            opt.step()
+
+            ch_total += float(ch.item())
+            rgb_total += float(rgb.item())
+            tr_total += float(tr.item())
+
+        entry = {
+            "epoch": epoch,
+            "chamfer": ch_total / n_steps_per_epoch,
+            "rgb": rgb_total / n_steps_per_epoch,
+            "travel": tr_total / n_steps_per_epoch,
+        }
+        history.append(entry)
+        if progress_callback is not None:
+            progress_callback(epoch, entry)
+
+    return sequencer, history
