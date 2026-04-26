@@ -26,13 +26,22 @@ def run(
     seq_batch_size: int = 4,
     seq_lr: float = 5e-4,
     device: str = "auto",
+    resume_from_vae: str | None = None,
+    vae_only_path: str = "vae_only.pt",
 ) -> str:
-    """Unpack bundle, train VAE then Sequencer, save checkpoint. Returns output path."""
+    """Unpack bundle, train VAE then Sequencer, save checkpoint. Returns output path.
+
+    If `resume_from_vae` is given, skip VAE training and load it from that checkpoint.
+    Always writes `vae_only_path` after VAE training so a sequencer-stage failure
+    doesn't cost the VAE work.
+    """
     from laser_ai.augment.frame import AugmentConfig
     from laser_ai.audio.features import FEATURE_DIM
     from laser_ai.dataset.discovery import discover_pairs
     from laser_ai.dataset.torch_dataset import FrameDataset
-    from laser_ai.models.checkpoint import LaserAICheckpoint, save_checkpoint
+    from laser_ai.models.checkpoint import (
+        LaserAICheckpoint, load_checkpoint, save_checkpoint,
+    )
     from laser_ai.models.sequencer import AudioToLatentSequencer, SequencerConfig
     from laser_ai.models.vae import FrameVAEConfig
     from laser_ai.training.prepare import build_sequencer_dataset
@@ -51,28 +60,50 @@ def run(
             index = json.load(f)
     print(f"[colab] unpacked {len(index['pairs'])} pair(s) to {work}")
 
-    # 1. Train VAE
-    ilda_paths = sorted(
-        p for p in pairs_dir.iterdir()
-        if p.is_file() and p.suffix.lower() in {".ild", ".ilda"}
-    )
-    print(f"[colab] training VAE on {len(ilda_paths)} ILDA file(s)")
-    ds = FrameDataset(
-        ilda_paths, n_points=n_points,
-        augment_mult=augment_mult, augment_cfg=AugmentConfig(),
-    )
-    vae_cfg = FrameVAEConfig(n_points=n_points, latent_dim=latent_dim, hidden=hidden)
-    vae_train_cfg = VAETrainConfig(
-        epochs=vae_epochs, batch_size=vae_batch_size, lr=vae_lr, device=device,
-    )
+    # 1. Train VAE (or resume)
+    if resume_from_vae is not None:
+        print(f"[colab] resuming VAE from {resume_from_vae} (skipping VAE training)")
+        ck_resume = load_checkpoint(resume_from_vae)
+        vae = ck_resume.vae
+        vae_cfg = ck_resume.vae_cfg
+        # Honor incoming dim args via the checkpoint, not the call args
+        n_points = vae_cfg.n_points
+        latent_dim = vae_cfg.latent_dim
+    else:
+        ilda_paths = sorted(
+            p for p in pairs_dir.iterdir()
+            if p.is_file() and p.suffix.lower() in {".ild", ".ilda"}
+        )
+        print(f"[colab] training VAE on {len(ilda_paths)} ILDA file(s)")
+        ds = FrameDataset(
+            ilda_paths, n_points=n_points,
+            augment_mult=augment_mult, augment_cfg=AugmentConfig(),
+        )
+        vae_cfg = FrameVAEConfig(n_points=n_points, latent_dim=latent_dim, hidden=hidden)
+        vae_train_cfg = VAETrainConfig(
+            epochs=vae_epochs, batch_size=vae_batch_size, lr=vae_lr, device=device,
+        )
 
-    def _log_vae(epoch, entry):
-        if epoch % 1 == 0:
-            print(f"  [vae] epoch {epoch}: total={entry['total']:.4f}  "
-                  f"chamfer={entry['chamfer']:.4f}  kl={entry['kl']:.4f}")
+        def _log_vae(epoch, entry):
+            if epoch % 1 == 0:
+                print(f"  [vae] epoch {epoch}: total={entry['total']:.4f}  "
+                      f"chamfer={entry['chamfer']:.4f}  kl={entry['kl']:.4f}")
 
-    vae, _ = train_vae(ds, vae_cfg=vae_cfg, train_cfg=vae_train_cfg,
-                        progress_callback=_log_vae)
+        vae, _ = train_vae(ds, vae_cfg=vae_cfg, train_cfg=vae_train_cfg,
+                            progress_callback=_log_vae)
+
+        # Persist VAE-only checkpoint immediately so a later failure doesn't lose it.
+        _placeholder_seq_cfg = SequencerConfig(
+            feature_dim=FEATURE_DIM, latent_dim=latent_dim, max_len=16384,
+        )
+        _vae_only = LaserAICheckpoint(
+            vae=vae, vae_cfg=vae_cfg,
+            sequencer=AudioToLatentSequencer(_placeholder_seq_cfg),
+            seq_cfg=_placeholder_seq_cfg,
+            audio_feature_dim=FEATURE_DIM, fps=30.0,
+        )
+        save_checkpoint(_vae_only, vae_only_path)
+        print(f"[colab] saved VAE-only fallback to {vae_only_path}")
 
     # 2. Build sequencer dataset via VAE latents
     result = discover_pairs(pairs_dir)
