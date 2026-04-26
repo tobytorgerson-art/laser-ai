@@ -58,11 +58,13 @@ class AudioToLatentSequencer(nn.Module):
         self.ln_out = nn.LayerNorm(self.cfg.hidden)
         self.out_proj = nn.Linear(self.cfg.hidden, self.cfg.latent_dim)
 
-    def forward(self, features: torch.Tensor) -> torch.Tensor:
+    def forward(self, features: torch.Tensor, *, pos_offset: int = 0) -> torch.Tensor:
         B, T, _ = features.shape
-        if T > self.cfg.max_len:
-            raise ValueError(f"sequence length {T} > max_len {self.cfg.max_len}")
-        pos = torch.arange(T, device=features.device)
+        if T + pos_offset > self.cfg.max_len:
+            raise ValueError(
+                f"sequence length {T} + pos_offset {pos_offset} > max_len {self.cfg.max_len}"
+            )
+        pos = torch.arange(T, device=features.device) + pos_offset
         x = self.in_proj(features) + self.pos_emb(pos).unsqueeze(0)
         # Causal mask (T, T) — True = disallow attending
         mask = torch.triu(torch.ones(T, T, dtype=torch.bool, device=features.device),

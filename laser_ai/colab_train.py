@@ -121,7 +121,12 @@ def run(
     )
 
     def _log_seq(epoch, entry):
-        print(f"  [seq] epoch {epoch}: mse={entry['mse']:.6f}")
+        # pred_std should approach target_std as the model breaks out of mean-regression.
+        msg = f"  [seq] epoch {epoch}: mse={entry['mse']:.6f}"
+        if "pred_std" in entry and "target_std" in entry:
+            msg += (f"  pred_std={entry['pred_std']:.4f}/"
+                    f"target={entry['target_std']:.4f}")
+        print(msg)
 
     sequencer, _ = train_sequencer(
         seq_pairs, seq_cfg=seq_cfg, train_cfg=seq_train_cfg,
