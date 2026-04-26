@@ -1,6 +1,7 @@
 """Load audio files to mono float32 at 44.1 kHz."""
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -26,8 +27,15 @@ def load_audio(path: str | Path) -> tuple[np.ndarray, int]:
         # libsndfile can choke on MP3s with malformed headers. Fall back to
         # librosa.load, which uses audioread / ffmpeg under the hood and is
         # more forgiving. Loads mono and resampled to TARGET_SR in one shot.
+        # Both PySoundFile-failed UserWarning and the audioread Deprecation
+        # FutureWarning are expected on MP3s and not actionable, so silence them.
         import librosa
-        samples, sr = librosa.load(str(path), sr=TARGET_SR, mono=True)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*PySoundFile failed.*")
+            warnings.filterwarnings(
+                "ignore", category=FutureWarning, module="librosa.*",
+            )
+            samples, sr = librosa.load(str(path), sr=TARGET_SR, mono=True)
 
     if sr != TARGET_SR:
         import librosa
