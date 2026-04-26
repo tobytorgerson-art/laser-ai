@@ -82,9 +82,9 @@ def run(
     )
 
     # 3. Train Sequencer
-    # Use max_len=8192 (~5 min at 30 fps) so real songs fit without truncation.
+    # Use max_len=16384 (~9 min at 30 fps) so longer songs fit without truncation.
     print(f"[colab] training sequencer")
-    seq_cfg = SequencerConfig(feature_dim=FEATURE_DIM, latent_dim=latent_dim, max_len=8192)
+    seq_cfg = SequencerConfig(feature_dim=FEATURE_DIM, latent_dim=latent_dim, max_len=16384)
     seq_train_cfg = SequencerTrainConfig(
         epochs=seq_epochs, batch_size=seq_batch_size, lr=seq_lr, device=device,
     )
